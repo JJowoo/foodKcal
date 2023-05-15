@@ -6,6 +6,7 @@
 
 package org.pytorch.demo.objectdetection;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
@@ -28,6 +29,15 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
+import android.widget.TextView;
+
+import com.google.android.gms.tasks.OnCompleteListener;
+import com.google.android.gms.tasks.Task;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.ValueEventListener;
 
 import org.pytorch.IValue;
 import org.pytorch.LiteModuleLoader;
@@ -45,6 +55,8 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
+import kotlin.collections.DoubleIterator;
+
 public class MainActivity extends AppCompatActivity implements Runnable {
     private int mImageIndex = 0;
     private String[] mTestImages = {"test1.png", "test2.jpg", "test3.png"};
@@ -55,7 +67,10 @@ public class MainActivity extends AppCompatActivity implements Runnable {
     private ProgressBar mProgressBar;
     private Bitmap mBitmap = null;
     private Module mModule = null;
+    static TextView testing_result;
     private float mImgScaleX, mImgScaleY, mIvScaleX, mIvScaleY, mStartX, mStartY;
+
+    private DatabaseReference mDatabase;
 
     public static String assetFilePath(Context context, String assetName) throws IOException {
         File file = new File(context.getFilesDir(), assetName);
@@ -79,6 +94,8 @@ public class MainActivity extends AppCompatActivity implements Runnable {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        mDatabase = FirebaseDatabase.getInstance().getReference();
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, 1);
@@ -175,6 +192,10 @@ public class MainActivity extends AppCompatActivity implements Runnable {
                 mStartX = (mImageView.getWidth() - mIvScaleX * mBitmap.getWidth())/2;
                 mStartY = (mImageView.getHeight() -  mIvScaleY * mBitmap.getHeight())/2;
 
+                //Log.d("mivscalex", String.valueOf(mIvScaleX));
+                //Log.d("mivscaley", String.valueOf(mIvScaleY));
+
+
                 Thread thread = new Thread(MainActivity.this);
                 thread.start();
             }
@@ -194,6 +215,123 @@ public class MainActivity extends AppCompatActivity implements Runnable {
             Log.e("Object Detection", "Error reading assets", e);
             finish();
         }
+
+        final Button buttonCalulate = findViewById(R.id.button_calculate);
+        buttonCalulate.setOnClickListener(new View.OnClickListener() {
+            double horizontal_pix=1;
+            double vertical_pix=1;
+            public void onClick(View v) {
+                //get coin_detected value from firebase
+                mDatabase.child("coin_detected").child("horizontal_pix").get().addOnCompleteListener(new OnCompleteListener<DataSnapshot>() {
+                    @Override
+                    public void onComplete(@NonNull Task<DataSnapshot> task) {
+                        if (!task.isSuccessful()) {
+                            Log.e("firebase", "Error getting data", task.getException());
+                        }
+                        else {
+                            Log.d("firebase", String.valueOf(task.getResult().getValue()));
+                            horizontal_pix = Double.parseDouble(String.valueOf(task.getResult().getValue()));
+                            Log.d("firebase", String.valueOf(horizontal_pix));
+
+                        }
+                    }
+                });
+                mDatabase.child("coin_detected").child("vertical_pix").get().addOnCompleteListener(new OnCompleteListener<DataSnapshot>() {
+                    @Override
+                    public void onComplete(@NonNull Task<DataSnapshot> task) {
+                        if (!task.isSuccessful()) {
+                            Log.e("firebase", "Error getting data", task.getException());
+                        }
+                        else {
+                            Log.d("firebase", String.valueOf(task.getResult().getValue()));
+                            vertical_pix = Double.parseDouble(String.valueOf(task.getResult().getValue()));
+                            Log.d("firebase", String.valueOf(vertical_pix));
+
+                        }
+                    }
+                });
+                final int[] size = new int[1];
+                //firebase child count
+                mDatabase.child("인식한것").addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override
+                    public void onDataChange(@NonNull DataSnapshot snapshot) {
+                        size[0] = (int) snapshot.getChildrenCount();
+                        Log.d("firebasesize", String.valueOf(size[0]));
+                    }
+
+                    @Override
+                    public void onCancelled(@NonNull DatabaseError error) {
+
+                    }
+                });
+
+
+                final boolean[] next_object = {true};
+                int i=0;
+                ArrayList<String> object_list = new ArrayList<>();
+                ArrayList<Double> object_height = new ArrayList<>();
+                ArrayList<Double> object_width = new ArrayList<>();
+                //object_list.add("test1");
+                //Log.d("testarray", String.valueOf(object_list.get(0)));
+                while(i<size[0]){
+                    mDatabase.child("인식한것").child(String.valueOf(i)).get().addOnCompleteListener(new OnCompleteListener<DataSnapshot>() {
+                        @Override
+                        public void onComplete(@NonNull Task<DataSnapshot> task) {
+                            if (!task.isSuccessful()) {
+                                Log.e("firebase_object_get", "Error getting data", task.getException());
+                                next_object[0] = false;
+                            }
+                            else {
+                                Log.d("firebase_object_name", String.valueOf(task.getResult().getValue()));
+                                object_list.add(String.valueOf(task.getResult().getValue()));
+
+                            }
+                        }
+                    });
+                    mDatabase.child("인식한것").child(String.valueOf(i)).child("height").get().addOnCompleteListener(new OnCompleteListener<DataSnapshot>() {
+                        @Override
+                        public void onComplete(@NonNull Task<DataSnapshot> task) {
+                            if (!task.isSuccessful()) {
+                                Log.e("firebase_object_get", "Error getting data", task.getException());
+                                next_object[0] = false;
+                            }
+                            else {
+                                Log.d("firebase_object_height", String.valueOf(task.getResult().getValue()));
+                                object_height.add(Double.parseDouble(String.valueOf(task.getResult().getValue())));
+
+                            }
+                        }
+                    });
+                    mDatabase.child("인식한것").child(String.valueOf(i)).child("width").get().addOnCompleteListener(new OnCompleteListener<DataSnapshot>() {
+                        @Override
+                        public void onComplete(@NonNull Task<DataSnapshot> task) {
+                            if (!task.isSuccessful()) {
+                                Log.e("firebase_object_get", "Error getting data", task.getException());
+                                next_object[0] = false;
+                            }
+                            else {
+                                Log.d("firebase_object_width", String.valueOf(task.getResult().getValue()));
+                                object_width.add(Double.parseDouble(String.valueOf(task.getResult().getValue())));
+
+                            }
+                        }
+                    });
+                    //String test = object_list.get(i);
+
+                    //Log.d("firebase_object_list", test);
+                    //Log.d("firebase_object_height",(String) object_height.get(i)/horizontal_pix+"");
+                    //Log.d("firebase_object_width",(String) object_width.get(i)/vertical_pix+"");
+                    i++;
+
+                }//while end
+                //String test = object_list.get(0);
+                //Log.d("firebase_object_list", test);
+
+
+
+            }//onclick end
+        });
+
     }
 
     @Override
@@ -251,6 +389,9 @@ public class MainActivity extends AppCompatActivity implements Runnable {
             mResultView.setResults(results);
             mResultView.invalidate();
             mResultView.setVisibility(View.VISIBLE);
+
         });
+
+        Log.d("result", String.valueOf(results));
     }
 }
